@@ -203,6 +203,9 @@ func Callback(
 		return "", errors.Wrap(err, op)
 	}
 
+	// Upsert account into matched oidc groups
+	r.upsertGroupMembership(ctx, acct, userInfoClaims)
+
 	// wow, we're getting close.  we just need to create a pending token for this
 	// successful authentication process, so it can be retrieved by the polling client
 	// that initialed the authentication attempt.

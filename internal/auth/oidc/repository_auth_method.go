@@ -20,6 +20,52 @@ var _ oplog.ReplayableMessage = (*Account)(nil)
 // Account must implement proto.Message for upsertAccount to work
 var _ proto.Message = (*Account)(nil)
 
+// upsertGroupMembership will create/update account using claims from the user's ID and Access Tokens.
+func (r *Repository) upsertGroupMembership(ctx context.Context, account *Account, userInfoClaims map[string]interface{}) ([]string, error) {
+	const op = "oidc.(Repository).upsertGroupMembership"
+
+	if account == nil {
+		return nil, errors.New(errors.InvalidParameter, op, "missing account")
+	}
+	if userInfoClaims == nil {
+		return nil, errors.New(errors.InvalidParameter, op, "missing user info claims")
+	}
+
+	var groups []string
+	if grps, ok := userInfoClaims["groups"].([]interface{}); ok {
+		for _, g := range grps {
+			groups = append(groups, g.(string))
+		}
+	} else {
+		return nil, nil
+	}
+
+	var query string
+	query = fmt.Sprintf(groupMempershipUpsertQuery, account.PublicId, strings.Join(groups, "','"))
+
+	values := []interface{}{account.PublicId, groups}
+
+	_, err := r.writer.DoTx(
+		ctx,
+		db.StdRetryCnt,
+		db.ExpBackoff{},
+		func(reader db.Reader, w db.Writer) error {
+			var err error
+			rows, err := w.Query(ctx, query, nil)
+			if err != nil {
+				return errors.Wrap(err, op, errors.WithMsg("unable to insert/update group membership"))
+			}
+			defer rows.Close()
+			return nil
+		})
+
+	if err != nil {
+		return nil, errors.Wrap(err, op)
+	}
+
+	return nil, nil
+}
+
 // upsertAccount will create/update account using claims from the user's ID and Access Tokens.
 func (r *Repository) upsertAccount(ctx context.Context, am *AuthMethod, IdTokenClaims, AccessTokenClaims map[string]interface{}) (*Account, error) {
 	const op = "oidc.(Repository).upsertAccount"
